@@ -3,7 +3,7 @@ import os, time, requests, pandas as pd, matplotlib.pyplot as plt, streamlit as 
 from dotenv import load_dotenv
 
 load_dotenv()
-API = os.getenv("API_BASE")
+API = os.getenv("API_BASE") or st.secrets.get("API_BASE", "http://localhost:5000/api")
 
 st.set_page_config(page_title="Job Dashboard", layout="wide")
 st.title("📊 Job‑Portal Analytics")
