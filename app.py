@@ -2,7 +2,7 @@ import os, requests, pandas as pd, matplotlib.pyplot as plt, streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
-API_BASE = os.getenv("API_BASE", "https://jobpilot-gqgi.onrender.com/api")
+API_BASE = os.getenv("API_BASE")
 
 
 
