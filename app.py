@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 API = os.getenv("API_BASE") or st.secrets.get("API_BASE");
+print(API)
 
 st.set_page_config(
     page_title="Job Dashboard",
