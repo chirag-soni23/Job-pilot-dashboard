@@ -7,7 +7,7 @@ import plotly.express as px
 from dotenv import load_dotenv
 
 load_dotenv()
-API = os.getenv("API_BASE") or st.secrets.get("API_BASE", "http://localhost:5000/api")
+API = os.getenv("API_BASE") or st.secrets.get("API_BASE");
 
 st.set_page_config(
     page_title="Job Dashboard",
