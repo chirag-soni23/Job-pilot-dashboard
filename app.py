@@ -1,23 +1,63 @@
-# dashboard.py
-import os, time, requests, pandas as pd, matplotlib.pyplot as plt, streamlit as st
+import os
+import time
+import requests
+import pandas as pd
+import streamlit as st
+import plotly.express as px
 from dotenv import load_dotenv
 
 load_dotenv()
 API = os.getenv("API_BASE") or st.secrets.get("API_BASE", "http://localhost:5000/api")
 
-st.set_page_config(page_title="Job Dashboard", layout="wide")
+st.set_page_config(
+    page_title="Job Dashboard",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
+    <style>
+        section.main > div {padding-top: 2rem;}
+        .stMetric {text-align:center;}
+        .metric-label {font-size:0.9rem;color:#888;}
+        .metric-value {font-size:2rem;font-weight:700;margin:0;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("📊 Job‑Portal Analytics")
 
-# ─── Token helper
+
 def save_token(tok: str):
     st.session_state["jwt"] = tok
     st.cache_data.clear()
 
-# ─── Sidebar login/logout
+
+def fetch(path: str, tries: int = 3):
+    url = f"{API}{path}"
+    for _ in range(tries):
+        try:
+            r = requests.get(url, headers=HEAD, cookies=COOKIE, timeout=30)
+            if r.ok:
+                return r.json()
+            time.sleep(1)
+        except requests.Timeout:
+            time.sleep(2)
+    return []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_all():
+    return fetch("/user/getall"), fetch("/job/getall"), fetch("/apply/getall")
+
+
 with st.sidebar:
     st.header("🔐 Login")
     if "jwt" in st.session_state:
-        st.success("Logged in")
+        st.success("Logged in ✅")
         if st.button("Logout"):
             st.session_state.pop("jwt")
             st.rerun()
@@ -26,98 +66,113 @@ with st.sidebar:
         pwd = st.text_input("Password", type="password")
         if st.button("Login"):
             try:
-                r = requests.post(f"{API}/user/login",
-                                  json={"email": email, "password": pwd},
-                                  timeout=30)
-                if r.status_code == 200:
+                r = requests.post(
+                    f"{API}/user/login",
+                    json={"email": email, "password": pwd},
+                    timeout=30,
+                )
+                if r.ok:
                     token = r.json().get("token") or r.cookies.get("token")
                     if token:
                         save_token(token)
                         st.rerun()
                     else:
-                        st.error("No token in response")
+                        st.error("Token na mila 😔")
                 else:
                     st.error(f"Login failed ({r.status_code})")
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# ─── Stop if no token
+# ─── Auth Guard ───────────────────────────────────────────────────────────────
 if "jwt" not in st.session_state:
     st.stop()
 
-token  = st.session_state["jwt"]
-HEAD   = {"Authorization": f"Bearer {token}"}
+token = st.session_state["jwt"]
+HEAD = {"Authorization": f"Bearer {token}"}
 COOKIE = {"token": token}
 
-# ─── Safe GET with retry
-def fetch(path, tries=3):
-    url = f"{API}{path}"
-    for _ in range(tries):
-        try:
-            r = requests.get(url, headers=HEAD, cookies=COOKIE, timeout=30)
-            if r.status_code == 200:
-                return r.json()
-            st.warning(f"{path} → {r.status_code}")
-            break
-        except requests.Timeout:
-            time.sleep(2)
-    return []
+# ─── Data Load ────────────────────────────────────────────────────────────────
+users, jobs, apps = load_all()
 
-@st.cache_data(ttl=300)
-def load_all(tok):
-    return fetch("/user/getall"), fetch("/job/getall"), fetch("/apply/getall")
+df_users = pd.DataFrame(users)
+df_jobs = pd.DataFrame(jobs)
+df_apps = pd.DataFrame(apps)
 
-users, jobs, apps = load_all(token)
-
-# ─── Stats
+# ─── Top Metrics ──────────────────────────────────────────────────────────────
 c1, c2, c3 = st.columns(3)
-c1.metric("Users", len(users))
-c2.metric("Jobs",  len(jobs))
-c3.metric("Applications", len(apps))
+c1.metric("👥 Users", f"{len(df_users):,}")
+c2.metric("💼 Jobs", f"{len(df_jobs):,}")
+c3.metric("📑 Applications", f"{len(df_apps):,}")
 st.divider()
 
-# ─── Chart functions
-def pie(series, title):
-    if not series.empty:
-        fig, ax = plt.subplots()
-        ax.pie(series, labels=series.index, autopct="%1.0f%%", startangle=140)
-        ax.set_title(title)
-        ax.axis("equal")
-        st.pyplot(fig)
 
-def bar(series, title):
-    if not series.empty:
-        fig, ax = plt.subplots()
-        ax.bar(series.index, series.values, color="skyblue")
-        ax.set_title(title)
-        st.pyplot(fig)
+st.sidebar.subheader("📅 Date Filter")
+if not df_apps.empty and "createdAt" in df_apps.columns:
+    df_apps["date"] = pd.to_datetime(df_apps["createdAt"]).dt.date
+    min_d, max_d = df_apps["date"].min(), df_apps["date"].max()
+    date_range = st.sidebar.date_input("Range", (min_d, max_d))
+    if len(date_range) == 2:
+        start, end = date_range
+        df_apps = df_apps[(df_apps["date"] >= start) & (df_apps["date"] <= end)]
 
-def barh(series, title):
-    if not series.empty:
-        fig, ax = plt.subplots()
-        ax.barh(series.index, series.values, color="coral")
-        ax.set_title(title)
-        st.pyplot(fig)
 
-def line(series, title):
-    if not series.empty:
-        fig, ax = plt.subplots()
-        ax.plot(series.index, series.values, marker="o")
-        ax.set_title(title)
-        fig.autofmt_xdate()
-        st.pyplot(fig)
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["User Roles", "Job Types", "Apps per Company", "Apps Over Time"]
+)
 
-# ─── Charts
-pie(pd.Series([u.get("role","unknown") for u in users]).value_counts(),
-    "Users by Role")
+with tab1:
+    role_counts = df_users["role"].fillna("unknown").value_counts()
+    if not role_counts.empty:
+        fig = px.pie(
+            role_counts,
+            names=role_counts.index,
+            values=role_counts.values,
+            title="Users by Role",
+            hole=0.4,
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-bar(pd.Series([j.get("type","unknown") for j in jobs]).value_counts(),
-    "Jobs by Type")
+with tab2:
+    type_counts = df_jobs["type"].fillna("unknown").value_counts()
+    if not type_counts.empty:
+        fig = px.bar(
+            type_counts,
+            x=type_counts.index,
+            y=type_counts.values,
+            title="Jobs by Type",
+            text_auto=True,
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Count")
+        st.plotly_chart(fig, use_container_width=True)
 
-barh(pd.Series([a.get("job",{}).get("company","Unknown") for a in apps]).value_counts(),
-     "Applications per Company")
+with tab3:
+    company_counts = (
+        df_apps["job"]
+        .apply(lambda j: j.get("company", "Unknown") if isinstance(j, dict) else "Unknown")
+        .value_counts()
+    )
+    if not company_counts.empty:
+        fig = px.bar(
+            company_counts,
+            y=company_counts.index,
+            x=company_counts.values,
+            title="Applications per Company",
+            orientation="h",
+            text_auto=True,
+        )
+        fig.update_layout(xaxis_title="Count", yaxis_title="")
+        st.plotly_chart(fig, use_container_width=True)
 
-dates = (pd.Series([a.get("createdAt","")[:10] for a in apps if a.get("createdAt")])
-         .value_counts().sort_index())
-dates.index = pd.to_datetime(dates.index)
-line(dates, "Applications Over Time")
+with tab4:
+    if not df_apps.empty:
+        df_apps["date"] = pd.to_datetime(df_apps.get("createdAt"))
+        daily = df_apps.groupby(df_apps["date"].dt.date).size().reset_index(name="count")
+        fig = px.line(
+            daily,
+            x="date",
+            y="count",
+            markers=True,
+            title="Applications Over Time",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Applications")
+        st.plotly_chart(fig, use_container_width=True)
