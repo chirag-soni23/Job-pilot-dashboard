@@ -7,8 +7,7 @@ import plotly.express as px
 from dotenv import load_dotenv
 
 load_dotenv()
-API = st.secrets.get("API_BASE");
-print(API)
+API = st.secrets.get("API_BASE")
 
 st.set_page_config(
     page_title="Job Dashboard",
@@ -84,7 +83,6 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# ─── Auth Guard ───────────────────────────────────────────────────────────────
 if "jwt" not in st.session_state:
     st.stop()
 
@@ -92,20 +90,17 @@ token = st.session_state["jwt"]
 HEAD = {"Authorization": f"Bearer {token}"}
 COOKIE = {"token": token}
 
-# ─── Data Load ────────────────────────────────────────────────────────────────
 users, jobs, apps = load_all()
 
 df_users = pd.DataFrame(users)
 df_jobs = pd.DataFrame(jobs)
 df_apps = pd.DataFrame(apps)
 
-# ─── Top Metrics ──────────────────────────────────────────────────────────────
 c1, c2, c3 = st.columns(3)
 c1.metric("👥 Users", f"{len(df_users):,}")
 c2.metric("💼 Jobs", f"{len(df_jobs):,}")
 c3.metric("📑 Applications", f"{len(df_apps):,}")
 st.divider()
-
 
 st.sidebar.subheader("📅 Date Filter")
 if not df_apps.empty and "createdAt" in df_apps.columns:
@@ -116,14 +111,13 @@ if not df_apps.empty and "createdAt" in df_apps.columns:
         start, end = date_range
         df_apps = df_apps[(df_apps["date"] >= start) & (df_apps["date"] <= end)]
 
-
 tab1, tab2, tab3, tab4 = st.tabs(
     ["User Roles", "Job Types", "Apps per Company", "Apps Over Time"]
 )
 
 with tab1:
-    role_counts = df_users["role"].fillna("unknown").value_counts()
-    if not role_counts.empty:
+    if not df_users.empty and "role" in df_users.columns:
+        role_counts = df_users["role"].fillna("unknown").value_counts()
         fig = px.pie(
             role_counts,
             names=role_counts.index,
@@ -132,10 +126,12 @@ with tab1:
             hole=0.4,
         )
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No user role data available.")
 
 with tab2:
-    type_counts = df_jobs["type"].fillna("unknown").value_counts()
-    if not type_counts.empty:
+    if not df_jobs.empty and "type" in df_jobs.columns:
+        type_counts = df_jobs["type"].fillna("unknown").value_counts()
         fig = px.bar(
             type_counts,
             x=type_counts.index,
@@ -145,14 +141,16 @@ with tab2:
         )
         fig.update_layout(xaxis_title="", yaxis_title="Count")
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No job type data available.")
 
 with tab3:
-    company_counts = (
-        df_apps["job"]
-        .apply(lambda j: j.get("company", "Unknown") if isinstance(j, dict) else "Unknown")
-        .value_counts()
-    )
-    if not company_counts.empty:
+    if not df_apps.empty and "job" in df_apps.columns:
+        company_counts = (
+            df_apps["job"]
+            .apply(lambda j: j.get("company", "Unknown") if isinstance(j, dict) else "Unknown")
+            .value_counts()
+        )
         fig = px.bar(
             company_counts,
             y=company_counts.index,
@@ -163,9 +161,11 @@ with tab3:
         )
         fig.update_layout(xaxis_title="Count", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No application/company data available.")
 
 with tab4:
-    if not df_apps.empty:
+    if not df_apps.empty and "createdAt" in df_apps.columns:
         df_apps["date"] = pd.to_datetime(df_apps.get("createdAt"))
         daily = df_apps.groupby(df_apps["date"].dt.date).size().reset_index(name="count")
         fig = px.line(
@@ -177,3 +177,5 @@ with tab4:
         )
         fig.update_layout(xaxis_title="", yaxis_title="Applications")
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No application date data available.")
